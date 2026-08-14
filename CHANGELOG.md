@@ -1,3 +1,8 @@
+## 0.5.0 - Allow a custom browser config
+
+- feat: allow a custom browser config (#65)
+- chore: switch to npm (#66)
+
 ## 0.4.4 - Use a static profile dir
 
 - fix: use a static chrome profile dir to avoid losing settings between sessions
