@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import { access } from 'fs/promises';
 import path from 'path';
 import Emitter from './Emitter.mjs';

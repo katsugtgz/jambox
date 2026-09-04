@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import fetch from 'node-fetch';

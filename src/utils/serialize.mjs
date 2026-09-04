@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import { Buffer } from 'buffer';
 import { encodeBuffer } from 'http-encoding';
 

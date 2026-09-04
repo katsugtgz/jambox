@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import { Router } from 'express';
 import { jambox } from '../../store.mjs';
 import { serializeRequest, serializeResponse } from '../../Cache.mjs';

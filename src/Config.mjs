@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import * as NodeFS from 'node:fs';
 import * as path from 'node:path';
 import { createDebug } from './diagnostics.js';

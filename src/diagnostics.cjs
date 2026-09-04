@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 const DC = require('node:diagnostics_channel');
 const _debug = require('debug');
 

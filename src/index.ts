@@ -1,4 +1,4 @@
-// Typedoc entrypoint and where types are improted from into js
+// Typedoc entrypoint and where types are exported from into js
 
 export type ProxyInfo = {
   http: string;
@@ -41,7 +41,8 @@ export type ForwardOption =
     }
   | string;
 
-type StatusCode = number;
+/** HTTP status code (e.g. 200, 404, 500) */
+export type StatusCode = number;
 /**
  * Stub Rule
  *

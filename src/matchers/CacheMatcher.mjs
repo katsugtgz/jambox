@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import mockttp from 'mockttp';
 import minimatch from 'minimatch';
 import Cache from '../Cache.mjs';

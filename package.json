@@ -98,5 +98,10 @@
     "env": {
       "DEBUG": "jambox*"
     }
+  },
+  "overrides": {
+    "typedoc": {
+      "typescript": "6.0.3"
+    }
   }
 }

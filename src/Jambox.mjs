@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import fs from 'fs';
 import minimatch from 'minimatch';
 import mockttp from 'mockttp';

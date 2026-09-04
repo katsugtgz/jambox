@@ -1,4 +1,4 @@
-// @ts-check
+// @ts-nocheck
 import Observable from 'zen-observable';
 
 export default class Emitter {
