@@ -9,14 +9,11 @@ import CacheMatcher from './matchers/CacheMatcher.mjs';
 import GlobMatcher from './matchers/GlobMatcher.mjs';
 import CacheHandler from './handlers/CacheHandler.mjs';
 import ProxyHandler from './handlers/ProxyHandler.mjs';
-import { createDebug } from './diagnostics.cjs';
+import { createDebug } from './diagnostics.js';
 
 const debug = createDebug('core');
 
 export default class Jambox extends Emitter {
-  /**
-   * @typedef {import('mockttp')} mockttp
-   */
   /**
    * @member {Cache}
    */
@@ -77,7 +74,7 @@ export default class Jambox extends Emitter {
     } else {
       await this.proxy
         .forAnyRequest()
-        .matching((/** @type {mockttp.CompletedRequest} */ req) => {
+        .matching((req) => {
           const url = new URL(req.url);
           return url.hostname !== 'localhost';
         })
@@ -89,7 +86,7 @@ export default class Jambox extends Emitter {
       // See https://github.com/ballercat/jambox/issues/42
       await this.proxy
         .forAnyRequest()
-        .matching((/** @type {mockttp.CompletedRequest} */ req) => {
+        .matching((req) => {
           const url = new URL(req.url);
           return url.hostname === 'localhost';
         })
@@ -114,32 +111,35 @@ export default class Jambox extends Emitter {
     this.dispatch('reset');
   }
 
-  /**
-   * @param {import('./index.js').CacheOption} cache
-   */
-  record(cache) {
+  record(setting) {
     return this.proxy.addRequestRule({
       priority: 100,
-      matchers: [new CacheMatcher(this, cache)],
+      matchers: [new CacheMatcher(this, setting)],
       handler: new CacheHandler(this),
     });
   }
 
-  /**
-   * @param {Record<string, import('./index.js').ForwardOption>} forwards
-   */
-  forward(forwards) {
+  forward(setting) {
+    let entries;
+    if (Array.isArray(setting)) {
+      entries = setting;
+    } else {
+      entries = Object.entries(setting).map(([match, ...rest]) => {
+        const options =
+          typeof rest[0] === 'object'
+            ? rest[0]
+            : {
+                target: rest[0],
+              };
+        return {
+          match,
+          ...options,
+        };
+      });
+    }
     return Promise.all(
-      Object.entries(forwards).map(async ([original, target]) => {
-        let options;
-        if (typeof target === 'string') {
-          options = { target, paths: ['**'] };
-        }
-        if (typeof target === 'object') {
-          options = target;
-        }
-
-        const originalURL = new URL(original);
+      entries.map(async (options) => {
+        const originalURL = new URL(options.match);
         const targetURL = new URL(
           options.target,
           // If the first argument of new URL() is a path the second argument is
@@ -149,18 +149,60 @@ export default class Jambox extends Emitter {
         );
         const useSSL =
           targetURL.port === '443' || targetURL.protocol === 'https:';
-        const changeHosts = originalURL.host !== targetURL.host;
 
         const httpOptions = {
           ignoreHostHttpsErrors: true,
           forwarding: {
             targetHost: `http${useSSL ? 's' : ''}://${targetURL.host}`,
-            updateHostHeader: changeHosts ? originalURL.host : false,
+            updateHostHeader: true,
           },
         };
 
+        if (options.cors) {
+          httpOptions.beforeResponse = (res) => {
+            return {
+              ...res,
+              headers: {
+                'access-control-allow-origin': '*',
+                ...res.headers,
+              },
+            };
+          };
+
+          const optionsHeaders =
+            typeof options.cors === 'object'
+              ? options.cors
+              : {
+                  'access-control-allow-origin': '*',
+                  'access-control-allow-methods':
+                    'GET, POST, PUT, DELETE, OPTIONS',
+                  'access-control-allow-headers': '*',
+                  'access-control-max-age': 600,
+                };
+          await this.proxy
+            .forAnyRequest()
+            .forHost(originalURL.host)
+            .matching((request) => {
+              if (request.method !== 'OPTIONS') {
+                return false;
+              }
+
+              return true;
+            })
+            .asPriority(101)
+            .thenJson(204, {}, optionsHeaders);
+        }
+        if (options.debug) {
+          httpOptions.beforeRequest = (req) => {
+            debug(`[${originalURL.host}] ${req.path} match`);
+            return req;
+          };
+        }
+
         const matchers = [
-          new GlobMatcher(originalURL, { paths: options.paths || ['**'] }),
+          new GlobMatcher(originalURL, {
+            paths: options.paths || ['**'],
+          }),
         ];
 
         await this.proxy.addRequestRule({
@@ -187,12 +229,9 @@ export default class Jambox extends Emitter {
     );
   }
 
-  /**
-   * @param {Record<string, import('./index.js').StubOption>} stubs
-   */
-  stub(stubs) {
+  stub(setting) {
     return Promise.all(
-      Object.entries(stubs).map(([path, value]) => {
+      Object.entries(setting).map(([path, value]) => {
         const options = typeof value === 'object' ? value : { status: value };
         if (options.preferNetwork && !this.config.blockNetworkRequests) {
           return;
@@ -218,9 +257,6 @@ export default class Jambox extends Emitter {
     );
   }
 
-  /**
-   * @param {URL} url
-   */
   shouldStage(url) {
     if (this.cache.bypass() || this.config.blockNetworkRequests) {
       return false;
@@ -243,9 +279,6 @@ export default class Jambox extends Emitter {
     );
   }
 
-  /**
-   * @param {mockttp.CompletedRequest} request
-   */
   async onRequest(request) {
     try {
       const url = new URL(request.url);
@@ -270,9 +303,6 @@ export default class Jambox extends Emitter {
     }
   }
 
-  /**
-   * @param {mockttp.CompletedResponse} response
-   */
   async onResponse(response) {
     try {
       if (!this.cache.bypass() && this.cache.hasStaged(response)) {
@@ -286,9 +316,6 @@ export default class Jambox extends Emitter {
     }
   }
 
-  /**
-   * @param {mockttp.AbortedRequest} abortedRequest
-   */
   async onAbort(abortedRequest) {
     if (this.cache.hasStaged(abortedRequest)) {
       this.cache.abort(abortedRequest);

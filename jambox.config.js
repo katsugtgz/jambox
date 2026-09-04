@@ -13,12 +13,13 @@
  */
 export default {
   blockNetworkRequests: false,
-  forward: {
-    'http://jambox-test.com': {
+  forward: [
+    {
+      match: 'http://jambox-test.com',
       target: 'http://localhost:7777',
       paths: ['**'],
     },
-  },
+  ],
   stub: {
     '**/pathC': {
       status: 200,

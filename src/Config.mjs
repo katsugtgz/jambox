@@ -1,6 +1,8 @@
+// @ts-check
 import * as NodeFS from 'node:fs';
 import * as path from 'node:path';
-import { getLoader } from './read-user-config.js';
+import { createDebug } from './diagnostics.js';
+import getUserConfigFile from './read-user-config.js';
 import {
   CONFIG_FILE_NAME,
   CACHE_DIR_NAME,
@@ -8,20 +10,59 @@ import {
 } from './constants.mjs';
 import Emitter from './Emitter.mjs';
 import debounce from './utils/debounce.mjs';
-import { createDebug } from './diagnostics.cjs';
 
 const debug = createDebug('config');
 
 /**
- * @typedef  {object}         ConfigUpdate
- * @property {object=}        forward
- * @property {object=}        stub
- * @property {Array<string>=} trust
- * @property {object=}        cache
- * @property {boolean=}       blockNetworkRequests
- * @property {boolean=}       paused
- * @property {string=}        port
- * @property {string=}        browser
+ * @typedef  {object} BrowserConfig
+ * @property {string} name    - Browser name (e.g. 'chromium')
+ * @property {string} command - Absolute path to the browser executable
+ */
+
+/**
+ * Validate and return a browser config value.
+ * Accepts a string (browser name) or an object with { name, command }.
+ * Throws on invalid input.
+ *
+ * @param {string|BrowserConfig} value
+ * @returns {string|BrowserConfig}
+ */
+export function validateBrowserConfig(value) {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const errors = [];
+    if (typeof value.name !== 'string' || value.name.length === 0) {
+      errors.push('"name" must be a non-empty string');
+    }
+    if (typeof value.command !== 'string' || value.command.length === 0) {
+      errors.push('"command" must be a non-empty string');
+    }
+    if (errors.length > 0) {
+      throw new Error(
+        `Invalid browser config object: ${errors.join(', ')}. Expected { name: string, command: string }.`
+      );
+    }
+    return value;
+  }
+
+  throw new Error(
+    `Invalid browser config: expected a string or an object with { name: string, command: string }, got ${typeof value}.`
+  );
+}
+
+/**
+ * @typedef  {object} ConfigUpdate
+ * @property {object=}                  forward
+ * @property {object=}                  stub
+ * @property {Array<string>=}           trust
+ * @property {object=}                  cache
+ * @property {boolean=}                 blockNetworkRequests
+ * @property {boolean=}                 paused
+ * @property {string=}                  port
+ * @property {(string|BrowserConfig)=}  browser
  */
 export default class Config extends Emitter {
   /**
@@ -33,25 +74,15 @@ export default class Config extends Emitter {
   dir = '';
   filepath = '';
   logLocation = '';
-  errors = [];
-  /**
-   * @type {import('./index.js').ProxyInfo}
-   */
-  proxy;
+  proxy = {};
   noProxy = ['<-loopback->'];
   trust = new Set();
-  /**
-   * @type {Record<string, import('./index.js').ForwardOption>}
-   */
   forward = null;
   /**
-   * @type {import('./index.js').CacheOption}
+   * @member {object|null}
    */
   cache;
-  /**
-   * @type {Record<string, import('./index.js').StubOption>}
-   */
-  stub;
+  stub = null;
   blockNetworkRequests = false;
   paused = false;
   /**
@@ -65,31 +96,24 @@ export default class Config extends Emitter {
 
   /**
    * @param {object}                init
-   * @param {string|number=}        init.port
-   * @param {import('./index.js').ProxyInfo=}   init.proxy
+   * @param {string=}               init.port
+   * @param {object=}               init.proxy
    * @param {object}                options
    * @param {import('node:fs')}     options.fs
+   * @param {(f: string) => object} options.loadConfigModule
    */
   constructor(
     { port, proxy, ...rest } = {},
-    { fs } = {
+    { fs, loadConfigModule } = {
       fs: NodeFS,
+      loadConfigModule: getUserConfigFile,
     }
   ) {
     super('config');
-    const loader = getLoader(fs.promises);
-    this.loadConfigModule = async (/** @type {string} */ filepath) => {
-      try {
-        return await loader(filepath);
-      } catch (e) {
-        debug(`Caught error during config load ${e.message}`);
-        this.errors.push(e);
-        return {};
-      }
-    };
+    this.loadConfigModule = loadConfigModule;
     this.fs = fs;
     this.serverURL = new URL('http://localhost');
-    this.serverURL.port = String(port) || '9000';
+    this.serverURL.port = port || '9000';
     this.proxy = proxy;
     this.cache = null;
     this.update(rest);
@@ -142,8 +166,8 @@ export default class Config extends Emitter {
       this.serverURL.port = options.port;
     }
 
-    if (typeof options.browser === 'string') {
-      this.browser = options.browser;
+    if (options.browser != null) {
+      this.browser = validateBrowserConfig(options.browser);
     }
 
     this.dispatch('update', this.serialize());
@@ -156,18 +180,17 @@ export default class Config extends Emitter {
     this.cache = null;
     this.blockNetworkRequests = false;
     this.paused = false;
-    this.errors = [];
   }
 
   /**
    * @param {string=} cwd
    */
-  async load(cwd) {
+  load(cwd) {
     this.clear();
 
     if (!cwd) {
       debug(`Update existing config ${this.filepath}`);
-      this.update(await this.loadConfigModule(this.filepath));
+      this.update(this.loadConfigModule(this.filepath));
       return;
     }
 
@@ -184,7 +207,7 @@ export default class Config extends Emitter {
     this.prepCacheDir();
 
     // Works with .json & .js
-    this.update(await this.loadConfigModule(this.filepath));
+    this.update(this.loadConfigModule(this.filepath));
 
     this.watch();
   }
@@ -205,9 +228,6 @@ export default class Config extends Emitter {
     );
   }
 
-  /**
-   * @returns {import('./index.js').SerializedConfig}
-   */
   serialize() {
     return {
       browser: this.browser,
@@ -221,7 +241,6 @@ export default class Config extends Emitter {
       stub: this.stub,
       proxy: this.proxy,
       noProxy: this.noProxy,
-      errors: this.errors,
     };
   }
 }

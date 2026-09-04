@@ -1,10 +1,41 @@
-## 0.2.0 - JSDoc type coverage, docs site
+## 0.5.0 - Allow a custom browser config
 
-- chore: cover codebase with JSDoc types
-- chore: add typecheck CI step
-- feat: support ESM/CommonJS `jambox.config.js` in config files
-- feat: build & publish TS types
-- fix: wait for full reset when cwd is changed via api
+- feat: allow a custom browser config (#65)
+- chore: switch to npm (#66)
+
+## 0.4.4 - Use a static profile dir
+
+- fix: use a static chrome profile dir to avoid losing settings between sessions
+
+## 0.4.3 - Move svelte deps to dev
+
+- chore: move svelte related dependencies to devDependencies
+
+## 0.4.2 - Upgrade svelte
+
+- chore: upgrade svelte to 4.x
+- chore: disabled cypress in CI due to bug
+
+## 0.4.1 - Automatically update host header
+
+- fix: auto update host header during forwarding
+
+## 0.4.0 - Support a forward array in configuration
+
+- feat: support an array in the `forward` setting
+
+## 0.3.0 - Add auto CORS support in forwarded requests
+
+- feat: add cors support in forwarded requests
+
+## 0.2.1 - Remove disable web security flags
+
+- fix: `--disable-web-security` removed. This causes Chrome to omit the Origin
+        header when enabled.
+
+## 0.2.0 - Add support for native `fetch` proxying
+
+- feat: Support `globalThis.fetch` proxying, allowing native fetch requests to be cached/stubbed/etc
 
 ## 0.1.3 - Match paths containing dots, serialize browser config values
 

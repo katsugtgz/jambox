@@ -1,22 +1,18 @@
-import prettier from 'prettier';
-import manifest from './ext/manifest.js';
+const prettier = require('prettier');
+const { RawSource } = require('webpack-sources');
+const manifest = require('./ext/manifest');
 
-export default class ManifestPlugin {
+class ManifestPlugin {
   apply(compiler) {
-    compiler.hooks.make.tap('ManifestPlugin', (compilation) => {
+    compiler.hooks.make.tapPromise('ManifestPlugin', async (compilation) => {
       const fileName = 'manifest.json';
-      const manifestJSON = prettier.format(JSON.stringify(manifest), {
+      const manifestJSON = await prettier.format(JSON.stringify(manifest), {
         filepath: fileName,
       });
 
-      compilation.emitAsset(fileName, {
-        source() {
-          return manifestJSON;
-        },
-        size() {
-          return manifestJSON.length;
-        },
-      });
+      compilation.emitAsset(fileName, new RawSource(manifestJSON));
     });
   }
 }
+
+module.exports = ManifestPlugin;
