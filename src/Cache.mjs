@@ -11,6 +11,12 @@ import { createDebug } from './diagnostics.cjs';
 
 const debug = createDebug('server');
 
+/**
+ * Serialize a mockttp request into a plain JSON-safe object.
+ *
+ * @param {import('mockttp').CompletedRequest} request
+ * @returns {Promise<object>} JSON-safe representation (body parsed as JSON when possible)
+ */
 export const serializeRequest = async (request) => {
   return {
     id: request.id,
@@ -25,6 +31,13 @@ export const serializeRequest = async (request) => {
     ...request.timingEvents,
   };
 };
+
+/**
+ * Serialize a mockttp response into a plain JSON-safe object.
+ *
+ * @param {import('mockttp').CompletedResponse} response
+ * @returns {Promise<object>} JSON-safe representation including `sizeInBytes`
+ */
 export const serializeResponse = async (response) => {
   const text = await response.body.getText();
   const sizeInBytes = text.length;
@@ -40,6 +53,9 @@ export const serializeResponse = async (response) => {
   };
 };
 
+/**
+ * Cache lifecycle event names, dispatched on the `cache.*` namespace.
+ */
 export const events = {
   commit: 'commit',
   abort: 'abort',
@@ -52,6 +68,20 @@ export const events = {
   clear: 'clear',
 };
 
+/**
+ * In-memory HTTP traffic cache with zip "tape" persistence.
+ *
+ * Request/response pairs are staged as requests arrive ({@link Cache#add}),
+ * committed when their responses complete ({@link Cache#commit}), and looked
+ * up by an MD5 hash of `url + body`. Committed entries can be persisted to
+ * (and reloaded from) a zip file "tape" via {@link Cache#persist} and
+ * {@link Cache#reset}.
+ *
+ * Lifecycle events are dispatched on the `cache.*` namespace
+ * (see {@link events}).
+ *
+ * @extends {Emitter}
+ */
 class Cache extends Emitter {
   /** @private */
   staged = {};
@@ -61,6 +91,8 @@ class Cache extends Emitter {
   _bypass = false;
 
   /**
+   * Path to the zip "tape" file backing this cache.
+   *
    * @member {PortablePath}
    */
   tape;
@@ -70,7 +102,10 @@ class Cache extends Emitter {
   }
 
   /**
+   * Compute the cache hash for a request: an MD5 digest of its URL + body.
+   *
    * @param request {import('mockttp').CompletedRequest}
+   * @returns {Promise<string>} Hex digest used as the cache key
    */
   static async hash(request) {
     const body = await request.body.getText();
@@ -80,6 +115,15 @@ class Cache extends Emitter {
       .digest('hex');
   }
 
+  /**
+   * Get or set cache bypass mode.
+   *
+   * When bypassed, no new requests are staged and cached responses are not
+   * replayed (used by the "pause" feature).
+   *
+   * @param {boolean=} value - When provided, sets the bypass flag
+   * @returns {boolean} Current bypass state
+   */
   bypass(value) {
     if (typeof value !== 'undefined') {
       debug(`set bypass from ${this._bypass} to ${value}`);
@@ -89,12 +133,22 @@ class Cache extends Emitter {
     return this._bypass;
   }
 
+  /**
+   * Return a shallow copy of all committed cache entries, keyed by hash.
+   *
+   * @returns {Record<string, { id: string, request: object, response: object }>}
+   */
   all() {
     return { ...this.cache };
   }
 
   /**
-   * Stage a request
+   * Stage a request, awaiting its response before committing to cache.
+   *
+   * Ignores null requests and refuses to overwrite an already-staged
+   * request with the same id. Dispatches `cache.stage`.
+   *
+   * @param {import('mockttp').CompletedRequest} request
    */
   add(request) {
     if (request == null || request.id == null) {
@@ -114,7 +168,10 @@ class Cache extends Emitter {
   }
 
   /**
-   * Un-stage a request
+   * Un-stage a request (e.g. when it is aborted before responding).
+   * Dispatches `cache.abort`.
+   *
+   * @param {import('mockttp').CompletedRequest} request
    */
   abort(request) {
     if (request == null || request.id == null) {
@@ -125,6 +182,12 @@ class Cache extends Emitter {
     delete this.staged[request.id];
   }
 
+  /**
+   * Check whether a request (matched by id) is currently staged.
+   *
+   * @param {import('mockttp').CompletedRequest|import('mockttp').CompletedResponse} request
+   * @returns {boolean}
+   */
   hasStaged(request) {
     if (request == null || request.id == null) {
       return false;
@@ -134,7 +197,13 @@ class Cache extends Emitter {
   }
 
   /**
+   * Commit a staged request/response pair into the cache.
    *
+   * The pair is stored under the request's {@link Cache.hash} and the
+   * request is un-staged. Dispatches `cache.commit`.
+   *
+   * @param {import('mockttp').CompletedResponse} response - Response whose matching request is staged
+   * @returns {Promise<string|undefined>} The cache hash, or `undefined` if nothing was staged
    */
   async commit(response) {
     if (!this.hasStaged(response)) {
@@ -158,7 +227,10 @@ class Cache extends Emitter {
   }
 
   /**
+   * Remove a request's entry from the cache. Dispatches `cache.revert`.
    *
+   * @param {import('mockttp').CompletedRequest} request
+   * @returns {Promise<boolean|undefined>} `false` for invalid input, `undefined` when no entry existed
    */
   async revert(request) {
     if (request == null || request.id == null) {
@@ -175,21 +247,47 @@ class Cache extends Emitter {
     delete this.cache[hash];
   }
 
+  /**
+   * Check whether a hash exists in the cache.
+   *
+   * @param {string} hash
+   * @returns {boolean}
+   */
   has(hash) {
     return Boolean(this.cache[hash]);
   }
 
+  /**
+   * Get a cache entry by hash.
+   *
+   * @param {string} hash
+   * @returns {{ id: string, request: object, response: object }|undefined}
+   */
   get(hash) {
     debug(`get() ${hash}`);
     return this.cache[hash];
   }
 
+  /**
+   * Find a cache entry by its original mockttp request id.
+   *
+   * @param {string|number} id
+   * @returns {{ id: string, request: object, response: object }|undefined}
+   */
   findById(id) {
     return Object.values(this.cache).find((pair) => pair.request.id === id);
   }
 
   /**
-   * @param ids {Array<string>}
+   * Persist cache entries into the zip tape file.
+   *
+   * Creates the tape if it does not exist yet. Each entry is written as a
+   * pretty-printed JSON file named `<hash>.json`. Successfully persisted
+   * entries are annotated with their `tape` and `filename`.
+   * Dispatches `cache.persist` per entry.
+   *
+   * @param ids {Array<string>} Cache hashes to persist
+   * @returns {Promise<void>}
    */
   async persist(ids) {
     let create = false;
@@ -228,10 +326,17 @@ class Cache extends Emitter {
   }
 
   /**
+   * Clear the in-memory cache and bootstrap it from the zip tape.
+   *
    * - Reset the cache
    * - Read a cache tape to bootstrap in-memory cache
    *
+   * Invalid/corrupt records found on the tape are deleted from it.
+   * Dispatches `cache.reset`.
+   *
    * @param options {object}
+   * @param {string=} options.tape - Path to the zip tape file; when falsy only clears
+   * @returns {Promise<void>}
    */
   async reset(options) {
     this.clear();
@@ -287,9 +392,14 @@ class Cache extends Emitter {
   }
 
   /**
-   * @param ids  {Array<string>}
+   * Delete cache entries by hash, both from memory and from their tape.
    *
-   * @return {Promise}
+   * Per-entry failures (e.g. deleting a non-existent hash) are collected
+   * and returned rather than thrown.
+   *
+   * @param ids  {Array<string>} Cache hashes to delete
+   *
+   * @return {Promise<string[]>} Error messages for entries that failed to delete
    */
   async delete(ids) {
     const errors = [];
@@ -338,6 +448,15 @@ class Cache extends Emitter {
     return errors;
   }
 
+  /**
+   * Replace a cache entry's response and re-persist it if it lives on a tape.
+   * Dispatches `cache.update`.
+   *
+   * @param {object} param0
+   * @param {string} param0.id       - Cache hash to update
+   * @param {object} param0.response - Partial response update (body + headers)
+   * @returns {Promise<void>}
+   */
   async update({ id, response }) {
     const newResponse = await updateResponse(this.cache[id].response, response);
 
@@ -350,6 +469,10 @@ class Cache extends Emitter {
     }
   }
 
+  /**
+   * Empty the in-memory staged and committed caches.
+   * Dispatches `cache.clear`.
+   */
   clear() {
     this.staged = {};
     this.cache = {};

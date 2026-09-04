@@ -2,7 +2,7 @@ import * as url from 'node:url';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import HTMLWebpackPlugin from 'html-webpack-plugin';
-import ManifestPlugin from './manifest-plugin.js';
+import ManifestPlugin from './manifest-plugin.cjs';
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import webpack from 'webpack';
 

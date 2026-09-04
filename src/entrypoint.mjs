@@ -12,6 +12,29 @@ import { createDebug } from './diagnostics.cjs';
 
 const debug = createDebug();
 
+/**
+ * Jambox CLI entrypoint.
+ *
+ * Given a target (a URL or a command to run), this will:
+ *
+ * 1. Load the user config from the current working directory
+ * 2. Ensure a jambox server is running ({@link launchServer})
+ * 3. POST the cwd to `/api/reset` so the running server picks up this
+ *    project's config and returns its proxy settings
+ * 4. Launch the target:
+ *    - A **URI** opens a proxied Chrome instance ({@link launchProxiedChrome})
+ *      and persists the runtime config for the extension
+ *    - Anything else is spawned as a **node script** with `NODE_EXTRA_CA_CERTS`,
+ *      the proxy `require` hook, and `GLOBAL_AGENT_HTTP_PROXY` set
+ *
+ * @param {object} options
+ * @param {string} options.script    - Full CLI invocation (parsed for jambox flags)
+ * @param {string=} options.cwd      - Working directory (default: `process.cwd()`)
+ * @param {Function} options.log     - Logger
+ * @param {object} options.env       - Environment variables passed to spawned scripts
+ * @param {object} options.constants - Project constants (PROJECT_ROOT, SCRIPT_HELPER)
+ * @returns {Promise<{ browser?: object, process?: boolean }>}
+ */
 async function cli(options) {
   const { script, cwd = process.cwd(), log, env, constants } = options;
   const flags = parseArgs(script, JAMBOX_FLAGS);

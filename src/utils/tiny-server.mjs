@@ -2,9 +2,14 @@ import http from 'http';
 import express from 'express';
 
 /**
+ * Promisified wrapper around callbacks that follow the node.js
+ * `(err) => void` convention (e.g. `server.listen`).
+ *
  * Promisify doesn't work right with http callbacks
  *
- * @param cb {Function}
+ * @param {Function} cb     - Function whose last argument will be an error-first callback
+ * @param {any[]}   ...args - Arguments to pass to `cb` before the callback
+ * @returns {Promise<void>} Resolves when the callback is invoked without an error
  */
 const promise = (cb, /** @type {any[]} */ ...args) => {
   return new Promise((res, rej) => {
@@ -20,9 +25,19 @@ const promise = (cb, /** @type {any[]} */ ...args) => {
 };
 
 /**
- * This thing just echoes the paths
+ * Create a tiny test HTTP server.
  *
- * @param port {number} port number
+ * This thing just echoes the paths:
+ *
+ * - `GET /*`     — Responds with `{ path: <request path> }`
+ * - `POST /delay` — Responds with `{ delayed: 50 }` after 50ms
+ *
+ * The returned server is extended with a `_close()` helper that force-ends
+ * all open connections before closing (plain `server.close()` waits for
+ * keep-alive connections to finish).
+ *
+ * @param {number} port - Port number to listen on
+ * @returns {Promise<http.Server>} The running server (with an added `_close()` method)
  */
 export default async function tiny(port) {
   const app = express();
